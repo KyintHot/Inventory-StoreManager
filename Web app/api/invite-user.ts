@@ -64,13 +64,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   //    metadata (clients can forge metadata); it is written to profiles by this trusted code.
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const { data: invited, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo: origin })
-  if (inviteErr || !invited.user) {
-    const already = /already|registered|exists/i.test(inviteErr?.message ?? '')
+  if (inviteErr) {
+    const already = /already|registered|exists/i.test(inviteErr.message ?? '')
+    if (!already) console.error('[invite-user] invite failed:', inviteErr.message)
     return res.status(already ? 409 : 502).json({ error: already ? 'That email already has an account' : 'Could not send the invitation' })
   }
+  // GoTrue answered 200, so the user exists and the email went out — even when the response body
+  // carries no user object (observed live on 2026-10-17: invite delivered + accepted, body empty).
+  // Demanding `invited.user` here used to turn that success into a false "Could not send" 502 and
+  // silently skip the access-level step below. Only `inviteErr` is a failure.
   if (role === 'admin') {
-    const { error: roleErr } = await admin.from('profiles').update({ role: 'admin' }).eq('id', invited.user.id)
-    if (roleErr) return res.status(502).json({ error: 'Invited, but could not set the access level. Change it in Team.' })
+    const id = invited?.user?.id
+    const { data: updated, error: roleErr } = id
+      ? await admin.from('profiles').update({ role: 'admin' }).eq('id', id).select('id')
+      : await admin.from('profiles').update({ role: 'admin' }).eq('email', email).select('id')
+    if (roleErr) {
+      console.error('[invite-user] role update failed:', roleErr.message)
+      return res.status(502).json({ error: 'Invited, but could not set the access level. Change it in Team.' })
+    }
+    if (!updated?.length) console.warn('[invite-user] invited', email, 'but no profiles row yet — set the access level in Team')
   }
   return res.status(200).json({ ok: true })
 }

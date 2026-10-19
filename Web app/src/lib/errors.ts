@@ -42,6 +42,14 @@ export function errorText(err: unknown, t: (k: MessageKey) => string): string {
     const m = (err as MaybeApiError | undefined)?.message
     if (m) return m
   }
+  // /api endpoints (e.g. invitations) answer with short messages written by our own server code —
+  // "That email already has an account", "Server is not configured for invitations". Showing them
+  // beats a vague generic. Only errors carrying a numeric `status` qualify: Supabase/PostgREST
+  // errors carry `code`/`details` instead, so raw database wording never reaches the screen.
+  if (kind === 'generic') {
+    const e = err as MaybeApiError | undefined
+    if (typeof e?.status === 'number' && e.message) return e.message
+  }
   return t(errorMessageKey(err))
 }
 

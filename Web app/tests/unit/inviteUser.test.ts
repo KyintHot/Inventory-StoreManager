@@ -9,6 +9,8 @@ const state = {
   user: { id: 'u1' } as { id: string } | null,
   role: 'admin' as string | null,
   inviteError: null as { message: string } | null,
+  /** Live GoTrue answered 200 with no user object in the body — invite still succeeded. */
+  inviteNoUser: false,
   invited: [] as { email: string; redirectTo: string }[],
   roleUpdates: [] as { id: string; role: string }[],
   serviceKeyUsedFor: [] as string[],
@@ -24,15 +26,16 @@ vi.mock('@supabase/supabase-js', () => ({
               state.serviceKeyUsedFor.push('invite')
               if (state.inviteError) return { data: { user: null }, error: state.inviteError }
               state.invited.push({ email, redirectTo: opts.redirectTo })
-              return { data: { user: { id: 'new-user' } }, error: null }
+              return state.inviteNoUser ? { data: { user: null }, error: null } : { data: { user: { id: 'new-user' } }, error: null }
             },
           },
         },
         from: () => ({
           update: (patch: { role: string }) => ({
-            eq: async (_c: string, id: string) => {
+            eq: (_c: string, id: string) => {
               state.roleUpdates.push({ id, role: patch.role })
-              return { error: null }
+              // mirrors supabase-js: .update().eq().select('id') resolves { data, error }
+              return { select: async () => ({ data: [{ id }], error: null }) }
             },
           }),
         }),
@@ -67,7 +70,7 @@ beforeEach(() => {
   process.env.VITE_SUPABASE_ANON_KEY = 'anon-key'
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
   delete process.env.SITE_URL
-  Object.assign(state, { user: { id: 'u1' }, role: 'admin', inviteError: null, invited: [], roleUpdates: [], serviceKeyUsedFor: [] })
+  Object.assign(state, { user: { id: 'u1' }, role: 'admin', inviteError: null, inviteNoUser: false, invited: [], roleUpdates: [], serviceKeyUsedFor: [] })
 })
 
 describe('POST /api/invite-user', () => {
@@ -133,6 +136,16 @@ describe('POST /api/invite-user', () => {
     const r = await call({ body: { email: 'boss@example.com', role: 'admin', redirectTo: 'https://ole.example.com/reset-password' } })
     expect(r.code).toBe(200)
     expect(state.roleUpdates).toEqual([{ id: 'new-user', role: 'admin' }])
+  })
+
+  it('treats a 200 invite with no user object as success and still promotes by email', async () => {
+    // observed live on 2026-10-17: GoTrue invited + delivered, body carried no user object.
+    // The old code demanded invited.user, returned a false 502 and skipped the role update.
+    state.inviteNoUser = true
+    const r = await call({ body: { email: 'boss@example.com', role: 'admin', redirectTo: 'https://ole.example.com/reset-password' } })
+    expect(r.code).toBe(200)
+    expect(state.invited).toHaveLength(1)
+    expect(state.roleUpdates).toEqual([{ id: 'boss@example.com', role: 'admin' }])
   })
 
   it('allows the configured SITE_URL host', async () => {

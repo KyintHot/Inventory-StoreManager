@@ -8,8 +8,9 @@ import type { MessageKey } from '@/lib/messages'
 import { errorText } from '@/lib/errors'
 import { getCompany } from '@/services/settings'
 import { ImportPartialError, listRecentImports, recordImport, runImport, type ImportOutcome } from '@/services/imports'
-import { FIELD_SPECS, autoMap, buildRecords, type Mapping, type Row } from '@/utils/importMapping'
-import { FileReadError, readTableFile } from '@/utils/readTable'
+import { parseCometDocument, resolveImportKind } from '@/utils/cometDocument'
+import { FIELD_SPECS, autoMap, buildRecords, type Mapping } from '@/utils/importMapping'
+import { FileReadError, readTableFile, type Table } from '@/utils/readTable'
 import { formatDate, formatNumber } from '@/utils/format'
 import type { ImportKind } from '@/types/database'
 import { Spinner } from '@/components/states'
@@ -63,7 +64,7 @@ function DropZone({ onFile, label, hint }: { onFile: (f: File) => void; label: s
       <input
         ref={ref}
         type="file"
-        accept=".csv,.xlsx"
+        accept=".csv,.xlsx,.xls"
         className="hidden"
         data-testid="import-file-input"
         onChange={(e) => {
@@ -81,8 +82,7 @@ export function ImportPage() {
   const qc = useQueryClient()
   const [kind, setKind] = useState<ImportKind>('products')
   const [fileName, setFileName] = useState('')
-  const [headers, setHeaders] = useState<string[]>([])
-  const [rows, setRows] = useState<Row[]>([])
+  const [rawTable, setRawTable] = useState<Table | null>(null)
   const [mapping, setMapping] = useState<Mapping | null>(null)
   const [fileError, setFileError] = useState('')
   const [reading, setReading] = useState(false)
@@ -94,6 +94,16 @@ export function ImportPage() {
   const vatRate = Number(company.data?.vat_rate) || 7
 
   const specs = FIELD_SPECS[kind]
+  // Printed Comet5 documents (legacy .xls) are reshaped into rows for the selected kind here;
+  // normal tables pass through untouched. Switching kind reshapes the same raw sheet again.
+  const table = useMemo(
+    () =>
+      rawTable ? (kind === 'products' ? rawTable : parseCometDocument(rawTable.rows, kind) ?? rawTable) : null,
+    [rawTable, kind],
+  )
+  const headers = table?.headers ?? []
+  const rows = table?.rows ?? []
+  const cleaned = !!table && !!rawTable && table !== rawTable
   const built = useMemo(
     () => (mapping && rows.length ? buildRecords(kind, rows, mapping, { vatRate }) : { records: [], problems: [] }),
     [kind, rows, mapping, vatRate],
@@ -102,8 +112,7 @@ export function ImportPage() {
 
   function resetFile() {
     setFileName('')
-    setHeaders([])
-    setRows([])
+    setRawTable(null)
     setMapping(null)
     setFileError('')
     setOutcome(null)
@@ -113,7 +122,10 @@ export function ImportPage() {
   function chooseKind(k: ImportKind) {
     setKind(k)
     setOutcome(null)
-    if (headers.length) setMapping(autoMap(k, headers))
+    if (rawTable) {
+      const next = k === 'products' ? rawTable : parseCometDocument(rawTable.rows, k) ?? rawTable
+      setMapping(autoMap(k, next.headers))
+    }
   }
 
   async function onFile(file: File) {
@@ -121,11 +133,18 @@ export function ImportPage() {
     setFileError('')
     setOutcome(null)
     try {
-      const table = await readTableFile(file)
+      const loaded = await readTableFile(file)
+      // A printed invoice dropped while "products" is selected used to yield the raw document
+      // grid (16 junk rows, everything "SKU is missing") — switch to the type it fits instead.
+      const activeKind = resolveImportKind(loaded.rows, kind)
+      if (activeKind !== kind) {
+        setKind(activeKind)
+        toast.info(t('import.switchedType'))
+      }
       setFileName(file.name)
-      setHeaders(table.headers)
-      setRows(table.rows)
-      setMapping(autoMap(kind, table.headers))
+      setRawTable(loaded)
+      const shaped = activeKind === 'products' ? loaded : parseCometDocument(loaded.rows, activeKind) ?? loaded
+      setMapping(autoMap(activeKind, shaped.headers))
     } catch (e) {
       resetFile()
       const reason = e instanceof FileReadError ? e.reason : 'unreadable'
@@ -226,6 +245,11 @@ export function ImportPage() {
                   <span className="text-muted-foreground">
                     · {formatNumber(rows.length, 0)} {t('import.ready')}
                   </span>
+                  {cleaned ? (
+                    <span className="rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                      {t('import.cleaned')}
+                    </span>
+                  ) : null}
                   <Button size="sm" variant="ghost" className="ml-auto" onClick={resetFile}>
                     {t('import.changeFile')}
                   </Button>

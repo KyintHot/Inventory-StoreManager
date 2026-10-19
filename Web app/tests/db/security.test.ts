@@ -309,7 +309,9 @@ describe('tax invoices', () => {
     const r = await asUser(db, admin, () =>
       db.query<{ r: any }>(`select public.import_invoices($1::jsonb, 'i2.csv') as r`, [JSON.stringify([inv('INV-1'), inv('INV-2'), inv('INV-3')])]),
     )
-    expect(r.rows[0]!.r).toEqual({ created: 1, updated: 0, skipped_edited: 2 })
+    // sales_lines mirrors the FINAL items of all three docs: INV-1 keeps its corrected single
+    // item, INV-2 was re-saved with no items, INV-3 is new with its two file items
+    expect(r.rows[0]!.r).toEqual({ created: 1, updated: 0, skipped_edited: 2, sales_lines: 3 })
     const c = await db.query<{ customer_name: string }>(`select customer_name from public.tax_invoices where doc_no = 'INV-1'`)
     expect(c.rows[0]!.customer_name).toBe('ACME 2')
   })

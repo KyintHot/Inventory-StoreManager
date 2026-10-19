@@ -1,5 +1,6 @@
 import Papa from 'papaparse'
 import type { Row } from './importMapping'
+import { repairSheet } from './cometDocument'
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024
 export const MAX_ROWS = 100_000
@@ -53,10 +54,20 @@ export async function readTableFile(file: File): Promise<Table> {
       const data = await readSheet(file)
       return tableFromRows(data as unknown[][])
     }
+    if (name.endsWith('.xls')) {
+      // Legacy BIFF files (Comet5/Crystal Reports exports): SheetJS reads them, then the
+      // CP874 bytes those exports mis-declare are re-decoded (see utils/cometDocument.ts).
+      const XLSX = await import('xlsx')
+      const workbook = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array', cellDates: true })
+      const sheet = workbook.Sheets[workbook.SheetNames[0] ?? '']
+      if (!sheet) throw new FileReadError('empty')
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][]
+      return tableFromRows(repairSheet(data))
+    }
   } catch (e) {
     if (e instanceof FileReadError) throw e
     throw new FileReadError('unreadable')
   }
-  // Legacy .xls (binary) is not supported by the maintained reader; ask for .xlsx or .csv.
+  // Not a format we can read (e.g. .ods, .xlsm) — ask for csv/xls/xlsx.
   throw new FileReadError('unsupported')
 }

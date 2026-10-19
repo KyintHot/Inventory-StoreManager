@@ -12,6 +12,9 @@ const MIGRATIONS_DIR = path.resolve(__dirname, '../../supabase/migrations')
 const SUPABASE_STUB = `
 create role anon nologin;
 create role authenticated nologin;
+-- Supabase's platform role for the service-role key (api/invite-user.ts writes profiles.role
+-- with it, so 20261017000000_grant_profiles_role_to_service_role.sql grants to it).
+create role service_role nologin;
 create schema auth;
 create table auth.users (
   id uuid primary key default gen_random_uuid(),

@@ -230,6 +230,24 @@ test.describe('import', () => {
     expect(db.calls.some((c) => c.path.includes('record_import'))).toBe(true)
   })
 
+  test('a sales export dropped on "products" switches the type instead of overwriting stock', async ({ page }) => {
+    const db = await boot(page)
+    await page.goto('/import')
+    await expect(page.getByRole('radio', { name: 'Products' })).toHaveAttribute('aria-checked', 'true')
+    const csv = 'เลขที่บิล,วันที่,รหัสสินค้า,ชื่อสินค้า,จำนวน,หน่วย,ราคาต่อหน่วย,มูลค่า,ลูกค้า\nIV6910-200,2026-10-06,HNY-001,น้ำผึ้งดอกลำไย,2,ขวด,121,242,ร้านสุขใจ\n'
+    await page.getByTestId('import-file-input').setInputFiles({ name: 'sales-export.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') })
+    await expect(page.getByText('switched to Sales')).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Sales' })).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByText('SKU is missing')).toHaveCount(0)
+    await expect(page.getByText('1 rows ready').first()).toBeVisible()
+    await page.getByRole('button', { name: 'Import now' }).click()
+    await expect(page.getByRole('status').getByText('Import finished')).toBeVisible()
+    // the old failure mode: the file went to import_products and wrote sold qty into stock
+    expect(db.calls.some((c) => c.path.includes('import_products'))).toBe(false)
+    const rpc = db.calls.find((c) => c.path.includes('import_sales'))!
+    expect(rpc.body.p_rows[0]).toMatchObject({ bill_no: 'IV6910-200', sale_date: '2026-10-06', sku: 'HNY-001', qty: 2, amount: 242, line_no: 1 })
+  })
+
   test('reads a real .xlsx workbook (Thai headers, Excel date cell) for a sales import', async ({ page }) => {
     const db = await boot(page)
     await page.goto('/import')

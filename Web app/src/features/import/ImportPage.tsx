@@ -9,7 +9,7 @@ import { errorText } from '@/lib/errors'
 import { getCompany } from '@/services/settings'
 import { ImportPartialError, listRecentImports, recordImport, runImport, type ImportOutcome } from '@/services/imports'
 import { parseCometDocument, resolveImportKind } from '@/utils/cometDocument'
-import { FIELD_SPECS, autoMap, buildRecords, type Mapping } from '@/utils/importMapping'
+import { FIELD_SPECS, autoMap, buildRecords, detectImportKind, type Mapping } from '@/utils/importMapping'
 import { FileReadError, readTableFile, type Table } from '@/utils/readTable'
 import { formatDate, formatNumber } from '@/utils/format'
 import type { ImportKind } from '@/types/database'
@@ -134,12 +134,15 @@ export function ImportPage() {
     setOutcome(null)
     try {
       const loaded = await readTableFile(file)
-      // A printed invoice dropped while "products" is selected used to yield the raw document
-      // grid (16 junk rows, everything "SKU is missing") — switch to the type it fits instead.
-      const activeKind = resolveImportKind(loaded.rows, kind)
+      // Route the file to the type it fits: a printed invoice dropped while "products" is
+      // selected used to yield the raw document grid (16 junk rows, every one "SKU is missing"),
+      // and a sales export dropped on "products" imported as products — writing sold quantities
+      // into the stock column. Both now switch the type and say so.
+      const docKind = resolveImportKind(loaded.rows, kind)
+      const activeKind = detectImportKind(loaded.headers, docKind)
       if (activeKind !== kind) {
         setKind(activeKind)
-        toast.info(t('import.switchedType'))
+        toast.info(docKind !== kind ? t('import.switchedType') : `${t('import.switchedTo')} ${t(`import.type.${activeKind}`)}`)
       }
       setFileName(file.name)
       setRawTable(loaded)

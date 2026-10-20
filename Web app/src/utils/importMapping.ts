@@ -67,12 +67,13 @@ export function normalizeHeader(v: unknown): string {
  * pass 2 falls back to substring matches for what is left. Doing exact matches first stops a
  * short alias such as "unit"/"หน่วย" from claiming "Unit Price"/"ราคาต่อหน่วย" (a Base44 flaw).
  */
+const candidatesOf = (f: FieldSpec) => [...f.aliases, f.key, f.label].map(normalizeHeader)
+
 export function autoMap(kind: ImportKind, headers: string[]): Mapping {
   const specs = FIELD_SPECS[kind]
   const mapping: Mapping = Object.fromEntries(specs.map((f) => [f.key, null as number | null]))
   const used = new Set<number>()
   const norm = headers.map(normalizeHeader)
-  const candidatesOf = (f: FieldSpec) => [...f.aliases, f.key, f.label].map(normalizeHeader)
 
   for (const field of specs) {
     const candidates = candidatesOf(field)
@@ -140,6 +141,49 @@ export function parseDate(v: unknown): string {
     return isoFromParts(y, Number(dmy[2]), Number(dmy[1]))
   }
   return ''
+}
+
+/**
+ * How well `headers` fit `kind`. `fits` = every required field found a column; `score` weights
+ * each hit by 2 for an exact alias match and 1 for the substring fallback, because exact hits
+ * are what separate a sales table ("เลขที่บิล") from an invoice table ("เลขที่ใบกำกับภาษี")
+ * that both reach the same `bill_no`/`doc_no` alias through substring matching.
+ */
+export function kindFit(kind: ImportKind, headers: string[]): { fits: boolean; score: number } {
+  const mapping = autoMap(kind, headers)
+  const specs = FIELD_SPECS[kind]
+  const fits = specs.every((f) => !f.required || mapping[f.key] !== null)
+  const norm = headers.map(normalizeHeader)
+  let score = 0
+  for (const f of specs) {
+    const idx = mapping[f.key]
+    if (idx === null || idx === undefined) continue
+    score += candidatesOf(f).includes(norm[idx]!) ? 2 : 1
+  }
+  return { fits, score }
+}
+
+const KIND_ORDER: ImportKind[] = ['products', 'sales', 'invoices']
+
+/**
+ * Pick the import type a table actually fits, given the type currently selected.
+ *
+ * The Import page starts on "products", which accepts almost any header row (only SKU is
+ * required), so a Comet5 **sales** export dropped in without changing the type used to import
+ * as products — quietly writing sold quantities into the stock column and overwriting prices.
+ * Score every type against the headers and move only when another type fits and fits strictly
+ * better: the selected type wins every tie, and if nothing fits the selection is left alone so
+ * the mapping screen can show which required columns are missing.
+ */
+export function detectImportKind(headers: string[], current: ImportKind): ImportKind {
+  const score = (k: ImportKind) => kindFit(k, headers).score
+  const fits = KIND_ORDER.filter((k) => kindFit(k, headers).fits)
+  const bestOf = (kinds: ImportKind[]) =>
+    kinds.reduce((best, k) => (score(k) > score(best) ? k : best))
+  if (!fits.length) return current // nothing fits: keep the selection so the UI can explain why
+  if (!fits.includes(current)) return bestOf(fits) // the selected type cannot take this file
+  const others = fits.filter((k) => k !== current)
+  return others.length && score(bestOf(others)) > score(current) ? bestOf(others) : current
 }
 
 export type ProblemReason = 'sku' | 'date' | 'qty' | 'doc_no' | 'negative'

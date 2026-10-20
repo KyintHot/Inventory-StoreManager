@@ -1,6 +1,27 @@
 # Progress
 
-Last updated: 2026-10-13. Resume from "Next steps" below.
+Last updated: 2026-10-20. Resume from "Next steps" below.
+
+## 2026-10-20 update — live smoke check, import-type fix, service-role grants
+- `npm run smoke:live` (`scripts/live-smoke.mjs`) is a **read-only** check against the real
+  Supabase project in `.env`. Ran 2026-10-20: Auth up, all 8 tables exposed, signed-out reads
+  see no rows, anon rejected by every RPC, and the invoice → sales mirror (20261019000001) is
+  confirmed applied.
+- **Bug found live:** the service-role key got `permission denied for function ...` on every
+  RPC (42501) — 0003 revoked the default PUBLIC execute grant and re-granted only to
+  `authenticated`. The browser app worked, but no server-side caller could use any RPC.
+  Fixed by `supabase/migrations/20261020000001_grant_service_role_functions.sql` —
+  **apply it to the live project** (SQL editor or `supabase db push`); `npm run smoke:live`
+  then verifies it (check 6).
+- The manual "add new functions to the grant list" rule is now machine-enforced:
+  `tests/unit/migration-grants.test.ts` parses the migrations and asserts exact-signature
+  coverage for `authenticated` and `service_role`, zero grants for `anon`, and that every
+  RPC the frontend calls exists. `tests/db/roles.test.ts` proves the same in PGlite
+  (service role + admin claim works; no claim stops at `require_admin()`; `sync_invoice_sales`
+  stays internal).
+- **Bug fixed (client):** picking the wrong import type (e.g. a sales file as "invoices") no
+  longer imports garbage rows — the mismatch is detected and refused with a bilingual
+  message (`src/utils/importMapping.ts`, unit + e2e coverage).
 
 ## Status
 All planned pages and backend objects are implemented and verified **offline**. Nothing has been run against a real Supabase project or deployed to Vercel.

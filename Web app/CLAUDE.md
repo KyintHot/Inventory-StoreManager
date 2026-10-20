@@ -26,7 +26,7 @@ npm run build                 # tsc + vite build -> dist/
 
 ## Database / security
 - Migrations in `supabase/migrations/` are applied in filename order; never edit an applied migration — add a new one.
-- Every table has RLS; `anon` has no privileges; functions use `search_path = ''` and are granted explicitly (migration 0003). New functions must be added to that grant list or they are unusable by clients.
+- Every table has RLS; `anon` has no privileges; functions use `search_path = ''` and are granted explicitly (migration 0003, `service_role` in 20261020000001). New functions must be added to those grant lists or they are unusable by clients — `tests/unit/migration-grants.test.ts` enforces this automatically.
 - Writes that need privilege go through `SECURITY DEFINER` RPCs that call `public.require_admin()`.
 - **Never** put the service-role key in `VITE_*` vars or client code. Only `api/invite-user.ts` uses it.
 - Never trust role from client metadata. The first profile created becomes admin → keep public sign-ups disabled in Supabase.

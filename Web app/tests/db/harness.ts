@@ -57,6 +57,16 @@ export async function asUser<T>(db: PGlite, userId: string, fn: () => Promise<T>
   }
 }
 
+/** Run `fn` as the service-role key (role `service_role`), optionally presenting a user's JWT claim. */
+export async function asService<T>(db: PGlite, userId: string | null, fn: () => Promise<T>): Promise<T> {
+  await db.exec(`set role service_role; select set_config('request.jwt.claim.sub', '${userId ?? ''}', false);`)
+  try {
+    return await fn()
+  } finally {
+    await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false);`)
+  }
+}
+
 export async function asAnon<T>(db: PGlite, fn: () => Promise<T>): Promise<T> {
   await db.exec(`set role anon; select set_config('request.jwt.claim.sub', '', false);`)
   try {

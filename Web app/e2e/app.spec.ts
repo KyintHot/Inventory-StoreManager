@@ -256,11 +256,47 @@ test.describe('import', () => {
     expect(rpc.body.p_rows[1]).toMatchObject({ qty: 1, line_no: 2 }) // same bill+SKU twice -> distinct line numbers
   })
 
+  test('reads a real printed Comet5 .xls invoice, switches the type and imports it', async ({ page }) => {
+    const db = await boot(page)
+    await page.goto('/import')
+    const { readFileSync } = await import('node:fs')
+    const { resolve } = await import('node:path')
+    // the page starts on "products", which used to turn this printed page into 16 junk rows
+    await expect(page.getByRole('radio', { name: 'Products' })).toHaveAttribute('aria-checked', 'true')
+    await page.getByTestId('import-file-input').setInputFiles({
+      name: '6666.xls',
+      mimeType: 'application/vnd.ms-excel',
+      buffer: readFileSync(resolve('tests/fixtures/comet5/6666.xls')),
+    })
+    await expect(page.getByText('the import type was switched to Tax invoices')).toBeVisible()
+    await expect(page.getByRole('radio', { name: 'Tax invoices' })).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByText('Cleaned automatically — Comet5 document format')).toBeVisible()
+    await expect(page.getByText(/— SKU is missing/)).toHaveCount(0) // the old failure mode
+    await expect(page.getByText('1 rows ready').first()).toBeVisible()
+    await page.getByRole('button', { name: 'Import now' }).click()
+    await expect(page.getByRole('status').getByText('Import finished')).toBeVisible()
+    const rpc = db.calls.find((c) => c.path.includes('import_invoices'))!
+    expect(rpc.body.p_file_name).toBe('6666.xls')
+    expect(rpc.body.p_rows).toHaveLength(1)
+    expect(rpc.body.p_rows[0]).toMatchObject({ doc_no: 'INV-900001', doc_date: '2026-10-19' })
+    expect(rpc.body.p_rows[0].items).toHaveLength(1)
+    expect(rpc.body.p_rows[0].items[0]).toMatchObject({ sku: '000001', qty: 1, unit_price: 550, amount: 550 })
+    expect(db.calls.some((c) => c.path.includes('record_import'))).toBe(true)
+  })
+
   test('rejects unsupported and unreadable files with a clear message', async ({ page }) => {
     await boot(page)
     await page.goto('/import')
+    // a legacy .xls is supported now, and SheetJS reads even junk as a one-cell sheet,
+    // so the guard that fires is the empty one
     await page.getByTestId('import-file-input').setInputFiles({ name: 'old.xls', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from('x') })
-    await expect(page.getByRole('alert').filter({ hasText: '.xlsx' })).toBeVisible()
+    await expect(page.getByRole('alert').filter({ hasText: 'No rows found' })).toBeVisible()
+    // a corrupt .xlsx cannot be parsed at all
+    await page.getByTestId('import-file-input').setInputFiles({ name: 'broken.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('x') })
+    await expect(page.getByRole('alert').filter({ hasText: 'could not be read' })).toBeVisible()
+    // …while a format we have no reader for is still "not supported"
+    await page.getByTestId('import-file-input').setInputFiles({ name: 'table.ods', mimeType: 'application/vnd.oasis.opendocument.spreadsheet', buffer: Buffer.from('x') })
+    await expect(page.getByRole('alert').filter({ hasText: '.csv, .xlsx or the legacy .xls' })).toBeVisible()
     await page.getByTestId('import-file-input').setInputFiles({ name: 'empty.csv', mimeType: 'text/csv', buffer: Buffer.from('a,b\n') })
     await expect(page.getByRole('alert').filter({ hasText: 'No rows found' })).toBeVisible()
   })

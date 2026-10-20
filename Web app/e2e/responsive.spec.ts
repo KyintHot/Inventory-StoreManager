@@ -48,6 +48,10 @@ for (const vp of VIEWPORTS) {
   test.describe(`viewport ${vp.name}px`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } })
 
+    // eight pages, full-page screenshots: comfortably fast on its own, but the viewports run
+    // in parallel against one Vite dev server, so give the loop room instead of flaking on time
+    test.slow()
+
     test('no page overflows horizontally, and every page renders', async ({ page }) => {
       mkdirSync(SHOTS, { recursive: true })
       const db = createFakeDb('admin')

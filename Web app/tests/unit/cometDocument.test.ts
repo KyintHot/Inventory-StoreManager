@@ -6,10 +6,13 @@ import { autoMap, buildInvoices, buildSales } from '@/utils/importMapping'
 import { readTableFile } from '@/utils/readTable'
 
 /**
- * Real Comet5 exports (Crystal Reports .xls) as they arrive from the field: Thai text stored
- * as Windows-874 bytes under a wrong codepage (mojibake in Excel too) and a printed invoice
- * page instead of a table. The app must read, repair and reshape them without any manual
- * cleaning — that contract is asserted here against the actual files.
+ * Synthetic Comet5-style exports (Crystal Reports .xls) reproducing both field quirks: Thai
+ * text stored as Windows-874 bytes under a wrong codepage (mojibake in Excel too) and a printed
+ * invoice page instead of a table. The app must read, repair and reshape them without any
+ * manual cleaning — that contract is asserted here.
+ *
+ * Regenerate the files with `node scripts/make-fixtures.mjs`. Every company, customer, address,
+ * phone and tax ID in them is invented test data.
  */
 
 const FIXTURES = path.resolve(__dirname, '../fixtures/comet5')
@@ -32,7 +35,7 @@ describe('repair874', () => {
   })
 })
 
-describe('reading the real Comet5 files', () => {
+describe('reading the Comet5-style files', () => {
   const cases = [
     // dates arrive as Thai Buddhist dd/mm/YYYY strings (19/10/2569 = 19 Oct 2026) and must
     // come out of buildInvoices as ISO dates

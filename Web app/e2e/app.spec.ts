@@ -274,7 +274,7 @@ test.describe('import', () => {
     expect(rpc.body.p_rows[1]).toMatchObject({ qty: 1, line_no: 2 }) // same bill+SKU twice -> distinct line numbers
   })
 
-  test('reads a real printed Comet5 .xls invoice, switches the type and imports it', async ({ page }) => {
+  test('reads a printed Comet5 .xls invoice, switches the type and imports it', async ({ page }) => {
     const db = await boot(page)
     await page.goto('/import')
     const { readFileSync } = await import('node:fs')

@@ -1,4 +1,4 @@
-# CLAUDE.md — Ole Hardware Manager (Base44 → React + Supabase rebuild)
+# Built.md — Ole Hardware Manager (Base44 → React + Supabase rebuild)
 
 Bilingual (EN/TH) reporting companion to **Comet5** for Ole Honey Flavor Co., Ltd. Comet5 is the system of record: this app **imports** products/sales/tax invoices and reports on them. It is not a POS — do not add checkout/purchasing/stock-ledger features without an explicit decision (see `docs/implementation-plan.md`).
 
